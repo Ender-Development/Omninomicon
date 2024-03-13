@@ -1,4 +1,4 @@
-package io.enderdev;
+package io.enderdev.omninomicon;
 
 import net.minecraftforge.fml.common.Mod;
 
@@ -8,4 +8,8 @@ public class Omninomicon {
     public static final String MODNAME = "Omninomicon";
     public static final String CFGDIR = "Omninomicon/";
     public static final String VERSIONS = "[1.12.2]";
+
+    @Mod.Instance
+    public static Omninomicon instance;
+
 }
