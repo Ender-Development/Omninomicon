@@ -6,7 +6,7 @@ plugins {
     id 'maven-publish'
     id 'org.jetbrains.gradle.plugin.idea-ext' version '1.1.7'
     id 'eclipse'
-    id 'com.gtnewhorizons.retrofuturagradle' version '1.3.27'
+    id 'com.gtnewhorizons.retrofuturagradle' version '1.3.30'
     id 'com.matthewprenger.cursegradle' version '1.4.0'
 }
 
@@ -14,7 +14,6 @@ version = project.mod_version
 group = project.maven_group
 archivesBaseName = project.archives_base_name
 
-// Set the toolchain version to decouple the Java we run Gradle with from the Java used to compile and run the mod
 java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(8))
@@ -35,19 +34,37 @@ configurations {
     implementation.extendsFrom(embed)
 }
 
-minecraft {
-    mcVersion = '1.12.2'
+jar {
+    manifest {
+        def attribute_map = [:]
+        if (project.use_coremod.toBoolean()) {
+            attribute_map['FMLCorePlugin'] = project.coremod_plugin_class_name
+            if (project.include_mod.toBoolean()) {
+                attribute_map['FMLCorePluginContainsFMLMod'] = true
+                attribute_map['ForceLoadAsMod'] = project.gradle.startParameter.taskNames[0] == "build"
+            }
+        }
+        if (project.use_access_transformer.toBoolean()) {
+            attribute_map['FMLAT'] = 'embers_at.cfg'
+        }
+        attributes(attribute_map)
+    }
+    // Add all embedded dependencies into the jar
+    from(provider { configurations.embed.collect { it.isDirectory() ? it : zipTree(it) } })
+}
 
+minecraft {
+    mcVersion = project.mc_version
     // MCP Mappings
-    mcpMappingChannel = 'stable'
-    mcpMappingVersion = '39'
-    
+    mcpMappingChannel = 'snapshot'
+    mcpMappingVersion = '20171003'
+
     // Set username here, the UUID will be looked up automatically
-    username = 'Developer'
-    
+    username = '_MasterEnderman_'
+
     // Add any additional tweaker classes here
     // extraTweakClasses.add('org.spongepowered.asm.launch.MixinTweaker')
-    
+
     // Add various JVM arguments here for runtime
     def args = ["-ea:${project.group}"]
     if (project.use_coremod.toBoolean()) {
@@ -62,7 +79,7 @@ minecraft {
 
     // Include and use dependencies' Access Transformer files
     useDependencyAccessTransformers = true
-    
+
     // Add any properties you want to swap out for a dynamic value at build time here
     // Any properties here will be added to a class at build time, the name can be configured below
     // Example:
@@ -70,20 +87,16 @@ minecraft {
     // injectedTags.put('MOD_ID', project.archives_base_name)
 }
 
-// Generate a group.archives_base_name.Tags class
-tasks.injectTags.configure {
-    // Change Tags class' name here:
-    outputClassName.set("${project.group}.${project.archives_base_name}.Tags")
-}
-
 repositories {
+    maven { url "https://repo.spongepowered.org/maven" }
+    maven { url "https://repo.cleanroommc.com/releases" }
     maven {
-        name 'CleanroomMC Maven'
-        url 'https://maven.cleanroommc.com'
+        name 'GTNH Maven'
+        url 'https://nexus.gtnewhorizons.com/repository/public/'
     }
     maven {
-        name 'SpongePowered Maven'
-        url 'https://repo.spongepowered.org/maven'
+        name 'GTCEu Maven'
+        url 'https://maven.gtceu.com'
     }
     maven {
         name 'CurseMaven'
@@ -96,30 +109,24 @@ repositories {
 }
 
 dependencies {
-    if (project.use_assetmover.toBoolean()) {
-        implementation 'com.cleanroommc:assetmover:2.5'
-    }
-    if (project.use_mixins.toBoolean()) {
-        implementation 'zone.rong:mixinbooter:7.1'
-    }
+    // Common:
+    annotationProcessor 'org.ow2.asm:asm-debug-all:5.2'
+    annotationProcessor 'com.google.guava:guava:32.1.2-jre'
+    annotationProcessor 'com.google.code.gson:gson:2.8.9'
 
-    // Example of deobfuscating a dependency
-    // implementation rfg.deobf('curse.maven:had-enough-items-557549:4543375')
-
-    if (project.use_mixins.toBoolean()) {
-        // Change your mixin refmap name here:
-        String mixin = modUtils.enableMixins('org.spongepowered:mixin:0.8.3', "mixins.${project.archives_base_name}.refmap.json")
-        api (mixin) {
-            transitive = false
-        }
-        annotationProcessor 'org.ow2.asm:asm-debug-all:5.2'
-        annotationProcessor 'com.google.guava:guava:24.1.1-jre'
-        annotationProcessor 'com.google.code.gson:gson:2.8.6'
-        annotationProcessor (mixin) {
-            transitive = false
-        }
+    // RetroFuturaGradle:
+    String mixinBooter = modUtils.enableMixins('zone.rong:mixinbooter:9.1')
+    // modUtils.enableMixins('zone.rong:mixinbooter:9.1', 'mod_id.mixins.refmap.json') << add refmap name as 2nd arg (optional)
+    api(mixinBooter) {
+        transitive = false
     }
+    annotationProcessor(mixinBooter) {
+        transitive = false
+    }
+}
 
+if (getFile('dependencies.gradle').exists()) {
+    apply from: 'dependencies.gradle'
 }
 
 // Adds Access Transformer files to tasks
@@ -136,43 +143,25 @@ processResources {
     // This will ensure that this task is redone when the versions change
     inputs.property 'version', project.version
     inputs.property 'mcversion', project.minecraft.version
-    
+
     // Replace various properties in mcmod.info and pack.mcmeta if applicable
     filesMatching(['mcmod.info', 'pack.mcmeta']) { fcd ->
         // Replace version and mcversion
-        fcd.expand (
+        fcd.expand(
                 'version': project.version,
                 'mcversion': project.minecraft.version
         )
     }
-    
+
     if (project.use_access_transformer.toBoolean()) {
         rename '(.+_at.cfg)', 'META-INF/$1' // Make sure Access Transformer files are in META-INF folder
     }
 }
 
-jar {
-    manifest {
-        def attribute_map = [:]
-        if (project.use_coremod.toBoolean()) {
-            attribute_map['FMLCorePlugin'] = project.coremod_plugin_class_name
-            if (project.include_mod.toBoolean()) {
-                attribute_map['FMLCorePluginContainsFMLMod'] = true
-                attribute_map['ForceLoadAsMod'] = project.gradle.startParameter.taskNames[0] == "build"
-            }
-        }
-        if (project.use_access_transformer.toBoolean()) {
-            attribute_map['FMLAT'] = project.archives_base_name + '_at.cfg'
-        }
-        attributes(attribute_map)
-    }
-    // Add all embedded dependencies into the jar
-    from(provider{ configurations.embed.collect {it.isDirectory() ? it : zipTree(it)} })
-}
-
 idea {
     module {
         inheritOutputDirs = true
+        downloadSources = true
     }
     project {
         settings {
@@ -202,6 +191,21 @@ idea {
     }
 }
 
+publishing {
+    publications {
+        maven(MavenPublication) {
+            artifactId archivesBaseName
+            from components.java
+        }
+    }
+}
+
 tasks.named("processIdeaSettings").configure {
     dependsOn("injectTags")
+}
+
+// Helpers
+
+def getFile(String relativePath) {
+    return new File(projectDir, relativePath)
 }
